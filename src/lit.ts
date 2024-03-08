@@ -17,6 +17,47 @@ class Lit {
     this.litNodeClient = client;
   }
 
+
+  async encrypt(message, accessControlConditions, sessionSigs) {
+    if (!this.litNodeClient) {
+      await this.connect()
+    }
+  
+    // const authSig = await LitJsSdk.checkAndSignAuthMessage({ chain: 'ethereum', nonce:this.litNodeClient.getLatestBlockhash() })
+    const { ciphertext, dataToEncryptHash } = await LitJsSdk.encryptString(
+      {
+        accessControlConditions,
+        sessionSigs,
+        chain: 'ethereum',
+        dataToEncrypt: message,
+      },
+      this.litNodeClient,
+    );
+  
+    return {
+      ciphertext,
+      dataToEncryptHash,
+    };
+}
+async decrypt(ciphertext, dataToEncryptHash, accessControlConditions, sessionSigs) {
+  if (!this.litNodeClient) {
+    await this.connect()
+  }
+
+  // const authSig = await LitJsSdk.checkAndSignAuthMessage({ chain: 'ethereum', nonce:this.litNodeClient.getLatestBlockhash() })
+  const decryptedString = LitJsSdk.decryptToString(
+    {
+      accessControlConditions,
+      ciphertext,
+      dataToEncryptHash,
+      sessionSigs,
+      chain: 'ethereum',
+    },
+    this.litNodeClient,
+  );
+  return { decryptedString }
+}
+
   async delegateCapacity() {
     try {
       if (!this.litNodeClient) {
@@ -32,6 +73,7 @@ class Lit {
           dAppOwnerWallet: signer,
           capacityTokenId: "431",
           domain: window.location.host,
+          // delegateeAddresses:[], // not working
         });
 
       console.log("capacityDelegationAuthSig", capacityDelegationAuthSig);
@@ -69,6 +111,7 @@ class Lit {
           chainId: 1,
           expirationTime: expiration,
           resources,
+          nonce: this.litNodeClient.getLatestBlockhash(),
         });
 
         siweMessage = recapObject.addToSiweMessage(siweMessage);
@@ -82,11 +125,12 @@ class Lit {
           signedMessage: messageToSign,
           address: signer.address,
         };
-
+        console.log("authSig", authSig);
         return authSig;
       };
+
       const sessionSigs = await this.litNodeClient.getSessionSigs({
-        expiration: new Date(Date.now() + 1000 * 60 * 60).toISOString(), // 1 hr
+        expiration: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 1 hr
         chain: "ethereum",
         resourceAbilityRequests: [
           {
@@ -97,7 +141,33 @@ class Lit {
         authNeededCallback,
         capacityDelegationAuthSig,
       });
+      console.log(sessionSigs);
+
+      const accessControlConditions = [
+        {
+          contractAddress: "",
+          standardContractType: "",
+          chain: "ethereum",
+          method: "eth_getBalance",
+          parameters: [":userAddress", "latest"],
+          returnValueTest: {
+            comparator: ">=",
+            value: "000000000000", // 0.000001 ETH
+          },
+        },
+    ];
+
+    const {    ciphertext,
+        dataToEncryptHash} = await this.encrypt('this is a secret message', accessControlConditions, sessionSigs)
+        console.log(ciphertext, dataToEncryptHash);
+
+    this.decrypt(ciphertext,
+        dataToEncryptHash, accessControlConditions, sessionSigs).then((data)=>{
+            console.log(data)
+        })
+
       return sessionSigs;
+      // return capacityDelegationAuthSig;
     } catch (err: any) {
       console.error(err);
     }
